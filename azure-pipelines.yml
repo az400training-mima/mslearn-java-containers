@@ -1,0 +1,73 @@
+### YamlMime:Yaml
+ms.openlocfilehash: 652994a291aa8f3a4880d13a0a8fa212e86f1275
+ms.sourcegitcommit: b47c339c27f2e4e7b175dfe46d4db4d049fd0edd
+ms.translationtype: HT
+ms.contentlocale: ja-JP
+ms.lasthandoff: 06/24/2021
+ms.locfileid: "112739278"
+stages:
+- stage: Build
+  displayName: Build and publish Java container
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    variables:
+    - group: Release
+    steps:
+    - task: Maven@3
+      displayName: Maven pom.xml
+      inputs:
+        options: '-DskipITs --settings ./maven/settings.xml'
+        publishJUnitResults: false
+        allowBrokenSymlinks: 
+        checkStyleRunAnalysis: 
+    - task: CopyFiles@2
+      displayName: Copy WAR file to staging directory
+      inputs:
+        sourceFolder: $(build.sourcesdirectory)
+        contents: |
+          target/myshuttledev*.war
+          *.sql
+        targetFolder: $(build.artifactstagingdirectory)
+    - task: Docker@2
+      displayName: Build and push Java container image to registry
+      inputs:
+        command: buildAndPush
+        buildContext: $(build.artifactstagingdirectory)
+        repository: $(webRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: Container Registry Connection
+        tags: |
+          $(tag)
+    - task: AzureMysqlDeployment@1
+      displayName: Run MySQL initialization script
+      inputs:
+        azureSubscription: Azure Connection
+        serverName: $(MySqlServer).mysql.database.azure.com
+        databaseName: alm
+        sqlUsername: $(MySqlUserName)@$(MySqlServer)
+        sqlPassword: $(MySqlPassword)
+        sqlFile: $(Build.SourcesDirectory)/CreateMYSQLDB.sql
+- stage: Deploy
+  displayName: Deploy Web App
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+    - deployment: DeploymentJob
+      pool:
+        vmImage: $(vmImageName)
+      environment: java-container
+      variables:
+        - group: Release
+      strategy:
+        runOnce:
+          deploy:
+            steps: null
+    - task: AzureWebAppContainer@1
+      displayName: Update the web app with the new container
+      inputs:
+        appName: $(WebAppName)
+        azureSubscription: Azure Connection
+        imageName: '$(RegistryName)/$(webRepository):$(build.buildId)'
