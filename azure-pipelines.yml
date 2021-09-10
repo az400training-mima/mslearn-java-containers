@@ -1,10 +1,15 @@
 ### YamlMime:Yaml
-ms.openlocfilehash: 652994a291aa8f3a4880d13a0a8fa212e86f1275
+ms.openlocfilehash: 0d95a85946c3580c7a678d53afddbfa5ee08209f
 ms.sourcegitcommit: b47c339c27f2e4e7b175dfe46d4db4d049fd0edd
 ms.translationtype: HT
 ms.contentlocale: ja-JP
 ms.lasthandoff: 06/24/2021
 ms.locfileid: "112739278"
+variables:
+  dockerfilePath: $(Build.SourcesDirectory)/src/Dockerfile
+  webRepository: web
+  tag: $(Build.BuildId)
+  vmImageName: ubuntu-latest
 stages:
 - stage: Build
   displayName: Build and publish Java container
@@ -50,6 +55,7 @@ stages:
         sqlUsername: $(MySqlUserName)@$(MySqlServer)
         sqlPassword: $(MySqlPassword)
         sqlFile: $(Build.SourcesDirectory)/CreateMYSQLDB.sql
+
 - stage: Deploy
   displayName: Deploy Web App
   dependsOn: Build
@@ -64,10 +70,26 @@ stages:
       strategy:
         runOnce:
           deploy:
-            steps: null
-    - task: AzureWebAppContainer@1
-      displayName: Update the web app with the new container
-      inputs:
-        appName: $(WebAppName)
-        azureSubscription: Azure Connection
-        imageName: '$(RegistryName)/$(webRepository):$(build.buildId)'
+            steps: 
+            - task: AzureWebAppContainer@1
+              displayName: Update the web app with the new container
+              inputs:
+                appName: $(WebAppName)
+                azureSubscription: Azure Connection
+                imageName: '$(RegistryName)/$(webRepository):$(build.buildId)'
+            - task: AzureAppServiceSettings@1
+              displayName: Update web app connection string
+              inputs:
+                azureSubscription: Azure Connection
+                appName: $(WebAppName)
+                resourceGroupName: java-containers-cicd-rg
+                connectionStrings: |
+                  [
+                    {
+                      "name": "MyShuttleDb",
+                      "value": "jdbc:mysql://$(MySqlServer).mysql.database.azure.com:3306/alm?useSSL=true&requireSSL=false&autoReconnect=true&user=$(MySqlUserName)@$(MySqlServer)&password=$(MySqlPassword)",
+                      "type": "MySql",
+                      "slotSetting": false
+                    }
+                  ]
+    
